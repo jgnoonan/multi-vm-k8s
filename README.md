@@ -16,6 +16,22 @@ Deploy a minimal Fabric network (orderer + 2 peers) on Kubernetes with fixed nod
 
 ---
 
+## How it works (in brief)
+
+Hyperledger Fabric is a **shared ledger** that several organizations trust together: no single company runs it alone. Think of it as a shared spreadsheet that only approved parties can update, and everyone keeps a copy so nobody can change the past without the others agreeing.
+
+In this deployment:
+
+- **Organizations (orgs)** – We have two: Org1 and Org2. Each has its own **peer** (a node that holds a copy of the ledger and runs the business logic). In a real setup, each org would be a different company or department.
+- **Channel** – A private “room” (e.g. `mychannel3`) where only the members of that channel see the same ledger. Our two orgs share one channel, so they both see the same data.
+- **Orderer** – A separate service that doesn’t hold data; it only **orders** transactions into a sequence and packages them into blocks. All peers get the same order of blocks, so their copies of the ledger stay in sync.
+- **Chaincode** – The “smart contract” or program that runs on the ledger (e.g. our `basic` chaincode). It defines what you can read and write (e.g. “create an asset,” “list all assets”). It runs in its own pod and is invoked by the peers when you send a transaction.
+- **Flow** – When you **invoke** (e.g. “add an asset”), the client talks to the peers; the peers run the chaincode and **endorse** the result. Those endorsements are sent to the orderer, which puts the transaction in a block and delivers the block to all peers. Each peer appends the block to its copy of the ledger. **Queries** (e.g. “get all assets”) only read from one peer’s copy; they don’t go through the orderer.
+
+So in short: **peers** keep the ledger and run chaincode; the **orderer** agrees on the order of transactions; the **channel** defines who shares which ledger; and **chaincode** is the logic that runs on that shared data.
+
+---
+
 ## Prerequisites
 
 - Kubernetes cluster with at least 3 nodes. Edit `affinity` in `orderer.yaml`, `peer0-org1.yaml`, and `peer0-org2.yaml` if your node names differ.
