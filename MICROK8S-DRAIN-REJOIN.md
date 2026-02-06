@@ -5,7 +5,7 @@ Use this procedure when the kubelet x509 error persists after adding `--node-ip`
 **Prerequisites**
 
 - You have already added `--node-ip=<this node's IP>` to `/var/snap/microk8s/current/args/kubelet` on **every node** (master and workers). The fix script or manual edit is fine.
-- You know your node names and IPs (e.g. from `kubectl get nodes -o wide`).
+- You know your node names and IPs (e.g. from `microk8s kubectl get nodes -o wide`).
 - Do **one worker at a time** so the Fabric pods can move to the remaining nodes.
 
 **Node names in this guide:** Replace with your real node names and IPs. Example:
@@ -64,7 +64,7 @@ Back on the **master**:
 **4a. Remove the old node object** (use the node name or the IP the cluster used for that node):
 
 ```bash
-# Replace worker1-virtualbox with your worker’s name or IP as shown by kubectl get nodes
+# Replace worker1-virtualbox with your worker’s name or IP as shown by microk8s kubectl get nodes
 microk8s kubectl get nodes
 microk8s remove-node worker1-virtualbox
 ```
@@ -155,10 +155,10 @@ If you no longer see the x509 “doesn’t contain any IP SANs” error, the fix
 
 | Where    | Action |
 |----------|--------|
-| Master   | `kubectl drain WORKER --ignore-daemonsets --delete-emptydir` |
+| Master   | `microk8s kubectl drain WORKER --ignore-daemonsets --delete-emptydir` |
 | Worker   | `microk8s leave` then `sudo reboot` |
 | Master   | `microk8s remove-node WORKER` then `microk8s add-node` (copy join command) |
 | Worker   | `microk8s join <master>:25000/<token> --worker` |
-| Master   | `kubectl get nodes` until worker is Ready |
+| Master   | `microk8s kubectl get nodes` until worker is Ready |
 
 Then repeat for the next worker.

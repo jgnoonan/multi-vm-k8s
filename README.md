@@ -70,17 +70,17 @@ Optionally set `TEST_NETWORK_PATH=/home/djahid/fabric-samples/test-network` and 
 Apply the namespace, **external builder ConfigMap** (peers mount it and will fail without it), orderer, and peers. Use `microk8s kubectl` if that is your cluster.
 
 ```bash
-kubectl apply -f namespace.yaml
-kubectl apply -f chaincode-external-builder.yaml -n fabric
-kubectl apply -f orderer.yaml
-kubectl apply -f peer0-org1.yaml
-kubectl apply -f peer0-org2.yaml
+microk8s kubectl apply -f namespace.yaml
+microk8s kubectl apply -f chaincode-external-builder.yaml -n fabric
+microk8s kubectl apply -f orderer.yaml
+microk8s kubectl apply -f peer0-org1.yaml
+microk8s kubectl apply -f peer0-org2.yaml
 ```
 
 Verify pods (and node placement if desired):
 
 ```bash
-kubectl get pods -n fabric -o wide
+microk8s kubectl get pods -n fabric -o wide
 ```
 
 ---
@@ -92,9 +92,9 @@ Port-forward is **only needed** when you run the `peer` (or `configtxgen` for ch
 **When using the host CLI**, keep these running in the background (or in a separate terminal):
 
 ```bash
-kubectl -n fabric port-forward svc/orderer-example-com 7050:7050 &
-kubectl -n fabric port-forward svc/peer0-org1-example-com 7051:7051 &
-kubectl -n fabric port-forward svc/peer0-org2-example-com 9051:9051 &
+microk8s kubectl -n fabric port-forward svc/orderer-example-com 7050:7050 &
+microk8s kubectl -n fabric port-forward svc/peer0-org1-example-com 7051:7051 &
+microk8s kubectl -n fabric port-forward svc/peer0-org2-example-com 9051:9051 &
 ```
 
 **On MicroK8s**, if you see `x509: cannot validate certificate ... doesn't contain any IP SANs` when running port-forward (or logs/exec), fix the kubelet certificate on **every node** so port-forward works with no flags. See [Fix MicroK8s kubelet certificate](#fix-microk8s-kubelet-certificate) below.
@@ -123,10 +123,10 @@ Then run invoke/query **from the host** using those hostnames (see Step 7 “Fro
 
 ### Running without port-forward
 
-You can do **all** channel and chaincode steps (create channel, join, install, approve, commit, invoke, query) **from inside the cluster** using `kubectl exec` into the peer pods. No port-forward and no `/etc/hosts` on the host. The host is only used for:
+You can do **all** channel and chaincode steps (create channel, join, install, approve, commit, invoke, query) **from inside the cluster** using `microk8s kubectl exec` into the peer pods. No port-forward and no `/etc/hosts` on the host. The host is only used for:
 
 - **configtxgen** (run on the host; it only reads config and does not connect to the network)
-- **kubectl cp** to copy channel tx, block, chaincode package, and Admin MSP tarballs into the pods
+- **microk8s kubectl cp** to copy channel tx, block, chaincode package, and Admin MSP tarballs into the pods
 
 **Channel create (no port-forward):** Run configtxgen on the host to produce the channel tx, then copy the tx and the orderer TLS CA into peer0-org1, ensure Admin MSP is in the pod, and run `peer channel create` inside the pod talking to `orderer-example-com:7050`:
 
@@ -289,8 +289,8 @@ If `/tmp/Admin@org1.example.com` is missing (pod was restarted), copy the Admin 
 ### 6.1 Apply external builder and restart peers
 
 ```bash
-kubectl apply -f /home/djahid/fabric-samples/multi-vm-k8s/chaincode-external-builder.yaml -n fabric
-kubectl rollout restart deployment/peer0-org1 deployment/peer0-org2 -n fabric
+microk8s kubectl apply -f /home/djahid/fabric-samples/multi-vm-k8s/chaincode-external-builder.yaml -n fabric
+microk8s kubectl rollout restart deployment/peer0-org1 deployment/peer0-org2 -n fabric
 ```
 
 Wait for pods to be ready.
@@ -319,7 +319,7 @@ sudo microk8s ctr image import /tmp/asset-transfer-basic-1.0.tar
 
 4. Keep `chaincode-basic.yaml` with `image: asset-transfer-basic:1.0` and `imagePullPolicy: IfNotPresent`. The pod will use the locally imported image on whichever node it is scheduled.
 
-**Tip:** To run the chaincode only on the master (so you only load the image there), add under the deployment’s `spec.template.spec` a `nodeSelector` matching the master, e.g. `kubernetes.io/hostname: <master-node-name>` (see `kubectl get nodes`).
+**Tip:** To run the chaincode only on the master (so you only load the image there), add under the deployment’s `spec.template.spec` a `nodeSelector` matching the master, e.g. `kubernetes.io/hostname: <master-node-name>` (see `microk8s kubectl get nodes`).
 
 #### Option B: Use a container registry
 
@@ -340,7 +340,7 @@ docker push <registry>/asset-transfer-basic:1.0
 cd /home/djahid/fabric-samples/multi-vm-k8s
 chmod +x package-cc-external.sh
 ./package-cc-external.sh basic 1.0
-kubectl apply -f chaincode-basic.yaml -n fabric
+microk8s kubectl apply -f chaincode-basic.yaml -n fabric
 ```
 
 ### 6.4 Install package on both peers
@@ -398,8 +398,8 @@ peer lifecycle chaincode queryinstalled
 Copy the Package ID (e.g. `basic_1.0:59ef6e0a2e6cc...`). Edit `chaincode-basic.yaml`: set the `CHAINCODE_ID` env value to that Package ID. Then:
 
 ```bash
-kubectl apply -f /home/djahid/fabric-samples/multi-vm-k8s/chaincode-basic.yaml -n fabric
-kubectl rollout restart deployment/basic-cc -n fabric
+microk8s kubectl apply -f /home/djahid/fabric-samples/multi-vm-k8s/chaincode-basic.yaml -n fabric
+microk8s kubectl rollout restart deployment/basic-cc -n fabric
 ```
 
 ### 6.6 Approve and commit chaincode
@@ -550,7 +550,7 @@ peer chaincode query -C $CHANNEL_NAME -n $CC_NAME -c '{"Args":["GetAllAssets"]}'
 
 **Host invoke/query: "certificate is valid for ... not peer0.org1.com":** The CLI is verifying against a hostname that doesn’t match the cert. **Fix:** On the host where you run `peer`, add the Fabric hostnames to `/etc/hosts` pointing to 127.0.0.1 and use those hostnames in the command. See [Fix host TLS so you can run peer CLI from the host](#fix-host-tls-so-you-can-run-peer-cli-from-the-host). Then use `--peerAddresses peer0.org1.example.com:7051` and `peer0.org2.example.com:9051` (and `-o orderer.example.com:7050`). Alternatively run invoke/query **from inside the cluster** (Step 7 “From inside the cluster”).
 
-**Invoke fails with "connection refused" to basic-cc:9999:** The chaincode pod is not accepting connections. (1) Check the pod: `kubectl get pods -n fabric -l app=basic-cc` – must be Running. (2) Check logs: `kubectl logs -n fabric deployment/basic-cc -c chaincode` – chaincode must be listening on 9999. (3) Ensure `CHAINCODE_ID` in `chaincode-basic.yaml` matches the Package ID from `peer lifecycle chaincode queryinstalled` (same ID used in approve/commit). Update the YAML, then `kubectl apply -f chaincode-basic.yaml -n fabric` and `kubectl rollout restart deployment/basic-cc -n fabric`; wait for the pod to be Ready before invoking again.
+**Invoke fails with "connection refused" to basic-cc:9999:** The chaincode pod is not accepting connections. (1) Check the pod: `microk8s kubectl get pods -n fabric -l app=basic-cc` – must be Running. (2) Check logs: `microk8s kubectl logs -n fabric deployment/basic-cc -c chaincode` – chaincode must be listening on 9999. (3) Ensure `CHAINCODE_ID` in `chaincode-basic.yaml` matches the Package ID from `peer lifecycle chaincode queryinstalled` (same ID used in approve/commit). Update the YAML, then `microk8s kubectl apply -f chaincode-basic.yaml -n fabric` and `microk8s kubectl rollout restart deployment/basic-cc -n fabric`; wait for the pod to be Ready before invoking again.
 
 ---
 
@@ -612,7 +612,7 @@ sudo microk8s stop
 sudo microk8s start
 ```
 
-Wait until the node is Ready (`kubectl get nodes`). Then try port-forward again from the master. Alternatively, run the fix script with `--full-restart` on each node so it adds `--node-ip` (if needed) and then does the full stop/start for you:
+Wait until the node is Ready (`microk8s kubectl get nodes`). Then try port-forward again from the master. Alternatively, run the fix script with `--full-restart` on each node so it adds `--node-ip` (if needed) and then does the full stop/start for you:
 
 ```bash
 sudo ./fix-microk8s-kubelet-cert.sh --full-restart
@@ -627,8 +627,8 @@ sudo ./fix-microk8s-kubelet-cert.sh --full-restart
 If the orderer pod is `BackOff restarting failed container orderer`, check the logs:
 
 ```bash
-kubectl logs -n fabric deployment/orderer -c orderer --tail=100
-kubectl logs -n fabric deployment/orderer -c orderer --previous
+microk8s kubectl logs -n fabric deployment/orderer -c orderer --tail=100
+microk8s kubectl logs -n fabric deployment/orderer -c orderer --previous
 ```
 
 Common causes:
@@ -644,7 +644,7 @@ Common causes:
 If you can edit CoreDNS, add rewrite rules so `orderer.example.com` and peer hostnames resolve to Fabric services. See `coredns-fabric-rewrite.yaml` for the three rewrite lines. Add them inside the `.:53` block (before `forward`), then:
 
 ```bash
-kubectl rollout restart deployment coredns -n kube-system
+microk8s kubectl rollout restart deployment/coredns -n kube-system
 ```
 
 Then you can run channel/chaincode from a pod in the cluster using service names instead of port-forward.
