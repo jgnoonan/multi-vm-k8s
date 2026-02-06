@@ -1,0 +1,83 @@
+# External builder so peers accept "chaincode as external service" packages (no Docker build).
+# Apply: kubectl apply -f chaincode-external-builder.yaml -n fabric
+# Then add the volume and env to peer deployments (see README) and restart:
+#   kubectl rollout restart deployment/peer0-org1 deployment/peer0-org2 -n fabric
+#
+# The peer expects scripts at the path given in CORE_CHAINCODE_EXTERNALBUILDERS.
+# Mount this ConfigMap at /opt/hyperledger/ccaas_builder in the peer pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ccaas-builder
+  namespace: fabric
+data:
+  # Keys cannot contain '/'; we mount with subPath to bin/detect, bin/build, bin/release in peer
+  bin_detect: |
+    #!/bin/sh
+    # Accept if we find metadata.json with type "external" in SOURCE, METADATA_DIR, or under them
+    SOURCE=$1
+    METADIR=$2
+    check() {
+      [ -f "$1" ] || return 1
+      content=$(cat "$1" 2>/dev/null)
+      case "$content" in *external*) return 0;; esac
+      return 1
+    }
+    check "$METADIR/metadata.json" && exit 0
+    check "$SOURCE/metadata.json" && exit 0
+    check "$SOURCE/../metadata.json" && exit 0
+    check "$METADIR/../metadata.json" && exit 0
+    exit 1
+  bin_build: |
+    #!/bin/sh
+    set -e
+    SOURCE="${1:-}"
+    METADIR="${2:-}"
+    OUTPUT="${3:-}"
+    echo "ccaas_builder build: SOURCE=$SOURCE METADIR=$METADIR OUTPUT=$OUTPUT" >&2
+    if [ -z "$OUTPUT" ]; then
+      echo "ccaas_builder build: BUILD_OUTPUT_DIR (arg 3) is empty" >&2
+      exit 1
+    fi
+    mkdir -p "$OUTPUT"
+    CONN=""
+    if [ -f "$SOURCE/connection.json" ]; then
+      CONN="$SOURCE/connection.json"
+    elif [ -f "$METADIR/connection.json" ]; then
+      CONN="$METADIR/connection.json"
+    elif [ -f "$SOURCE/code.tar.gz" ]; then
+      (cd "$SOURCE" && tar xzf code.tar.gz) || { echo "ccaas_builder build: tar extract failed" >&2; exit 1; }
+      CONN="$SOURCE/connection.json"
+    elif [ -f "$METADIR/code.tar.gz" ]; then
+      (cd "$METADIR" && tar xzf code.tar.gz) || { echo "ccaas_builder build: tar extract failed" >&2; exit 1; }
+      CONN="$METADIR/connection.json"
+    fi
+    if [ -z "$CONN" ] || [ ! -f "$CONN" ]; then
+      echo "ccaas_builder build: connection.json not found in SOURCE or METADIR" >&2
+      ls -la "$SOURCE" 2>/dev/null || true
+      ls -la "$METADIR" 2>/dev/null || true
+      exit 1
+    fi
+    cp "$CONN" "$OUTPUT/connection.json"
+    if [ -d "$SOURCE/metadata" ]; then
+      cp -a "$SOURCE/metadata" "$OUTPUT/metadata"
+    fi
+    if [ -d "$METADIR/metadata" ]; then
+      cp -a "$METADIR/metadata" "$OUTPUT/metadata"
+    fi
+    echo "ccaas_builder build: success" >&2
+    exit 0
+  bin_release: |
+    #!/bin/sh
+    set -e
+    BLD="${1:-}"
+    RELEASE="${2:-}"
+    if [ -d "$BLD/metadata" ]; then
+      cp -a "$BLD/metadata/"* "$RELEASE/" 2>/dev/null || true
+    fi
+    if [ -f "$BLD/connection.json" ]; then
+      mkdir -p "$RELEASE/chaincode/server"
+      cp "$BLD/connection.json" "$RELEASE/chaincode/server"
+      exit 0
+    fi
+    exit 1

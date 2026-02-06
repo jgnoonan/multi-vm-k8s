@@ -1,0 +1,166 @@
+# Copyright IBM Corp. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Peer0 Org1: scheduled on node with role=org1 (e.g. master-node)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: peer0-org1-example-com
+  namespace: fabric
+  labels:
+    app: peer
+    org: org1
+spec:
+  type: ClusterIP
+  ports:
+    - name: peer
+      port: 7051
+      targetPort: 7051
+    - name: chaincode
+      port: 7052
+      targetPort: 7052
+    - name: operations
+      port: 9444
+      targetPort: 9444
+  selector:
+    app: peer
+    org: org1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: peer0-org1
+  namespace: fabric
+  labels:
+    app: peer
+    org: org1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: peer
+      org: org1
+  template:
+    metadata:
+      labels:
+        app: peer
+        org: org1
+    spec:
+      # Allow scheduling on control-plane / MicroK8s control plane (NoSchedule taints)
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/microk8s-controlplane
+          operator: Exists
+          effect: NoSchedule
+      # Pin peer0-org1 to node with label role=org1
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - org1
+      initContainers:
+        - name: extract-msp
+          image: busybox:latest
+          command: ["sh", "-c", "tar -xzf /secret/msp.tar.gz -C /out --strip-components=1"]
+          volumeMounts:
+            - name: peer-msp-secret
+              mountPath: /secret
+              readOnly: true
+            - name: peer-msp
+              mountPath: /out
+        - name: extract-tls
+          image: busybox:latest
+          command: ["sh", "-c", "tar -xzf /secret/tls.tar.gz -C /out --strip-components=1"]
+          volumeMounts:
+            - name: peer-tls-secret
+              mountPath: /secret
+              readOnly: true
+            - name: peer-tls
+              mountPath: /out
+      containers:
+        - name: peer
+          image: hyperledger/fabric-peer:2.5
+          env:
+            - name: FABRIC_LOGGING_SPEC
+              value: "INFO"
+            - name: CORE_PEER_TLS_ENABLED
+              value: "true"
+            - name: CORE_PEER_PROFILE_ENABLED
+              value: "true"
+            - name: CORE_PEER_TLS_CERT_FILE
+              value: /etc/hyperledger/fabric/tls/server.crt
+            - name: CORE_PEER_TLS_KEY_FILE
+              value: /etc/hyperledger/fabric/tls/server.key
+            - name: CORE_PEER_TLS_ROOTCERT_FILE
+              value: /etc/hyperledger/fabric/tls/ca.crt
+            - name: CORE_PEER_ID
+              value: peer0.org1.example.com
+            - name: CORE_PEER_ADDRESS
+              value: peer0.org1.example.com:7051
+            - name: CORE_PEER_LISTENADDRESS
+              value: "0.0.0.0:7051"
+            - name: CORE_PEER_CHAINCODEADDRESS
+              value: peer0.org1.example.com:7052
+            - name: CORE_PEER_CHAINCODELISTENADDRESS
+              value: "0.0.0.0:7052"
+            - name: CORE_PEER_GOSSIP_BOOTSTRAP
+              value: peer0.org1.example.com:7051
+            - name: CORE_PEER_GOSSIP_EXTERNALENDPOINT
+              value: peer0.org1.example.com:7051
+            - name: CORE_PEER_LOCALMSPID
+              value: Org1MSP
+            - name: CORE_OPERATIONS_LISTENADDRESS
+              value: "0.0.0.0:9444"
+            # External chaincode builder (no Docker in peer pod)
+            - name: CORE_CHAINCODE_EXTERNALBUILDERS
+              value: '[{"name":"ccaas_builder","path":"/opt/hyperledger/ccaas_builder"}]'
+          command: ["peer", "node", "start"]
+          ports:
+            - containerPort: 7051
+            - containerPort: 7052
+            - containerPort: 9444
+          volumeMounts:
+            - name: peer-msp
+              mountPath: /etc/hyperledger/fabric/msp
+            - name: peer-tls
+              mountPath: /etc/hyperledger/fabric/tls
+            - name: peer-data
+              mountPath: /var/hyperledger/production
+            - name: ccaas-builder
+              mountPath: /opt/hyperledger/ccaas_builder/bin/detect
+              subPath: bin_detect
+              readOnly: true
+            - name: ccaas-builder
+              mountPath: /opt/hyperledger/ccaas_builder/bin/build
+              subPath: bin_build
+              readOnly: true
+            - name: ccaas-builder
+              mountPath: /opt/hyperledger/ccaas_builder/bin/release
+              subPath: bin_release
+              readOnly: true
+      volumes:
+        - name: ccaas-builder
+          configMap:
+            name: ccaas-builder
+            defaultMode: 0755
+        - name: peer-msp-secret
+          secret:
+            secretName: peer0-org1-msp
+        - name: peer-tls-secret
+          secret:
+            secretName: peer0-org1-tls
+        - name: peer-msp
+          emptyDir: {}
+        - name: peer-tls
+          emptyDir: {}
+        - name: peer-data
+          emptyDir: {}

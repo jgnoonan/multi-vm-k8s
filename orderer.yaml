@@ -1,0 +1,133 @@
+# Copyright IBM Corp. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Orderer: scheduled on node with role=orderer (e.g. worker2-virtualbox)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orderer-example-com
+  namespace: fabric
+  labels:
+    app: orderer
+spec:
+  type: ClusterIP
+  ports:
+    - name: orderer
+      port: 7050
+      targetPort: 7050
+    - name: operations
+      port: 9444
+      targetPort: 9444
+  selector:
+    app: orderer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orderer
+  namespace: fabric
+  labels:
+    app: orderer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orderer
+  template:
+    metadata:
+      labels:
+        app: orderer
+    spec:
+      # Pin orderer to node with label role=orderer
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - orderer
+      initContainers:
+        - name: extract-orderer-msp
+          image: busybox:latest
+          command: ["sh", "-c", "tar -xzf /secret/msp.tar.gz -C /out --strip-components=1"]
+          volumeMounts:
+            - name: orderer-msp-secret
+              mountPath: /secret
+              readOnly: true
+            - name: orderer-msp
+              mountPath: /out
+        - name: extract-orderer-tls
+          image: busybox:latest
+          command: ["sh", "-c", "tar -xzf /secret/tls.tar.gz -C /out --strip-components=1"]
+          volumeMounts:
+            - name: orderer-tls-secret
+              mountPath: /secret
+              readOnly: true
+            - name: orderer-tls
+              mountPath: /out
+      containers:
+        - name: orderer
+          image: hyperledger/fabric-orderer:2.5
+          env:
+            - name: FABRIC_LOGGING_SPEC
+              value: "INFO"
+            - name: ORDERER_GENERAL_LISTENADDRESS
+              value: "0.0.0.0"
+            - name: ORDERER_GENERAL_LISTENPORT
+              value: "7050"
+            - name: ORDERER_GENERAL_GENESISMETHOD
+              value: file
+            - name: ORDERER_GENERAL_GENESISFILE
+              value: /var/hyperledger/orderer/orderer.genesis.block
+            - name: ORDERER_GENERAL_LOCALMSPID
+              value: OrdererMSP
+            - name: ORDERER_GENERAL_LOCALMSPDIR
+              value: /var/hyperledger/orderer/msp
+            - name: ORDERER_OPERATIONS_LISTENADDRESS
+              value: "0.0.0.0:9444"
+            - name: ORDERER_GENERAL_TLS_ENABLED
+              value: "true"
+            - name: ORDERER_GENERAL_TLS_PRIVATEKEY
+              value: /var/hyperledger/orderer/tls/server.key
+            - name: ORDERER_GENERAL_TLS_CERTIFICATE
+              value: /var/hyperledger/orderer/tls/server.crt
+            - name: ORDERER_GENERAL_TLS_ROOTCAS
+              value: '[/var/hyperledger/orderer/tls/ca.crt]'
+            - name: ORDERER_GENERAL_CLUSTER_CLIENTCERTIFICATE
+              value: /var/hyperledger/orderer/tls/server.crt
+            - name: ORDERER_GENERAL_CLUSTER_CLIENTPRIVATEKEY
+              value: /var/hyperledger/orderer/tls/server.key
+            - name: ORDERER_GENERAL_CLUSTER_ROOTCAS
+              value: '[/var/hyperledger/orderer/tls/ca.crt]'
+          command: ["orderer"]
+          ports:
+            - containerPort: 7050
+            - containerPort: 9444
+          volumeMounts:
+            - name: orderer-genesis
+              mountPath: /var/hyperledger/orderer/orderer.genesis.block
+              subPath: genesis.block
+            - name: orderer-msp
+              mountPath: /var/hyperledger/orderer/msp
+            - name: orderer-tls
+              mountPath: /var/hyperledger/orderer/tls
+            - name: orderer-data
+              mountPath: /var/hyperledger/production/orderer
+      volumes:
+        - name: orderer-genesis
+          secret:
+            secretName: orderer-genesis-block
+        - name: orderer-msp-secret
+          secret:
+            secretName: orderer-msp
+        - name: orderer-tls-secret
+          secret:
+            secretName: orderer-tls
+        - name: orderer-msp
+          emptyDir: {}
+        - name: orderer-tls
+          emptyDir: {}
+        - name: orderer-data
+          emptyDir: {}

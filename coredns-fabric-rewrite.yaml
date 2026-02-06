@@ -1,0 +1,38 @@
+# CoreDNS ConfigMap with Fabric DNS rewrites so orderer.example.com and
+# peer FQDNs resolve to the fabric namespace services (for TLS hostname verification).
+# Apply with: kubectl apply -f coredns-fabric-rewrite.yaml
+# Then restart CoreDNS: kubectl rollout restart deployment coredns -n kube-system
+# (or if CoreDNS runs as DaemonSet: kubectl delete pods -n kube-system -l k8s-app=kube-dns)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        rewrite name orderer.example.com orderer-example-com.fabric.svc.cluster.local
+        rewrite name peer0.org1.example.com peer0-org1-example-com.fabric.svc.cluster.local
+        rewrite name peer0.org2.example.com peer0-org2-example-com.fabric.svc.cluster.local
+        prometheus :9153
+        forward . /etc/resolv.conf {
+           max_concurrent 1000
+        }
+        cache 30 {
+           disable success cluster.local
+           disable denial cluster.local
+        }
+        loop
+        reload
+        loadbalance
+    }

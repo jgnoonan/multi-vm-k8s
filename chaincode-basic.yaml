@@ -1,0 +1,52 @@
+# Chaincode as external service: asset-transfer-basic (basic_1.0).
+# Multi-node, no registry: build image, then on EACH node: docker save ... | copy tar | microk8s ctr image import <tar>
+# Multi-node, with registry: push image and set image below to e.g. docker.io/<username>/asset-transfer-basic:1.0
+# Single-node / Docker Desktop K8s: image: asset-transfer-basic:1.0 is fine if built locally.
+# After "peer lifecycle chaincode install", set CHAINCODE_ID to the Package ID from queryinstalled and restart.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: basic-cc
+  namespace: fabric
+spec:
+  ports:
+    - name: chaincode
+      port: 9999
+      targetPort: 9999
+  selector:
+    app: basic-cc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: basic-cc
+  namespace: fabric
+  labels:
+    app: basic-cc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: basic-cc
+  template:
+    metadata:
+      labels:
+        app: basic-cc
+    spec:
+      containers:
+        - name: chaincode
+          # No registry: load on each node with "microk8s ctr image import" (see README 6.2). With registry: use full image name.
+          image: asset-transfer-basic:1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Must match the Package ID from "peer lifecycle chaincode queryinstalled" after install.
+            # Set this after installing the external package and restart the deployment.
+            - name: CHAINCODE_ID
+              value: "basic_1.0:REPLACE_WITH_PACKAGE_ID_FROM_QUERYINSTALLED"
+            - name: CHAINCODE_SERVER_ADDRESS
+              value: "0.0.0.0:9999"
+          ports:
+            - containerPort: 9999
+          # Optional: resources, securityContext
+      # No node placement required; chaincode can run on any node.
